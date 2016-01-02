@@ -62,6 +62,11 @@ static word homePage() {
   return bfill.position();
 }
 
+int ToBCD(int val){
+	if (val > 9) val += 6;
+	return val;
+}
+
 signed char get_solarium_status(int n){
 
 	signed char data;	
@@ -91,7 +96,7 @@ void loop() {
 		char *  command_status = strstr((char *)Ethernet::buffer + pos, "GET /GetStatus/");
 		if (command_status != 0)
 		{
-			*(command_status + 18) = 0;
+			//*(command_status + 18) = 0;
 			device = atoi(command_status + 15);
 			Serial.println("\nDevice:");
 			Serial.print(device);
@@ -107,6 +112,102 @@ void loop() {
 				Serial.print(curr_time);
 			}
 		}
+		char * command_start = strstr((char *)Ethernet::buffer + pos, "GET /Start/");
+		if (command_start != 0)
+		{
+			command_start += 10;
+			char * tmp = strstr(command_start, "/");
+			command_start = tmp+1;
+			device = strtol(command_start, &command_start, 10);
+			Serial.println("\nDevice:");
+			Serial.print(device);	
+		
+			tmp = strstr(command_start, "/");
+			command_start = tmp+1;
+			int pre_time = strtol(command_start, &command_start, 10);
+			Serial.println("\nPreTime:");
+			Serial.print(pre_time);		
+			
+			tmp = strstr(command_start, "/");
+			command_start = tmp+1;
+			int work_time = strtol(command_start, &command_start, 10);
+			Serial.println("\nWorkTime:");
+			Serial.print(work_time);		
+
+			tmp = strstr(command_start, "/");
+			command_start = tmp+1;
+			int cool_time = strtol(command_start, &command_start, 10);
+			Serial.println("\nCoolTime:");
+			Serial.print(cool_time);
+
+			int val1 = atoi(command_start);
+			int retry;
+			int time_in_hex = ToBCD(work_time);
+			pre_time = pre_time & 0x7F;
+			// checksum: CoolTime + Pre-Time - 5 - MainTime
+			/*
+			while(retry < 20){
+				// clear in FIFO
+				volatile unsigned char checksum = (preset_pre_time + preset_cool_time  - time_in_hex - 5) & 0x7F;
+				volatile unsigned char  remote_check_sum = 220;
+				while(USART_GetFlagStatus(USART1,USART_FLAG_RXNE))	USART_ReceiveData(USART1); // Flush input
+				while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+			
+				USART_SendData(USART1,0x80U | ((controller_address & 0x0fU)<<3U) | 2U); //Command 2 == Pre_time_set
+				SystickDelay(2);
+				USART_SendData(USART1,preset_pre_time);
+				while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+					
+				SystickDelay(2);
+				USART_SendData(USART1,0x80U | ((controller_address & 0x0fU)<<3U) | 5U); //Command 5 == Main time set
+				while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+		
+				SystickDelay(2);
+				USART_SendData(USART1,time_in_hex);
+				while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+			
+	//			SystickDelay(2);
+				retry2 =0;
+				while(!USART_GetFlagStatus(USART1,USART_FLAG_RXNE) && retry2++<10){
+					SystickDelay(2);
+				}
+				USART_ReceiveData(USART1); //"Read" old time
+	
+				SystickDelay(2);
+				USART_SendData(USART1,0x80U | ((controller_address & 0x0fU)<<3U) | 3U); //Command 3 == Cool Time set
+				while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+			
+				SystickDelay(2);
+				USART_SendData(USART1,preset_cool_time);
+				while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+			
+			
+				SystickDelay(4);
+				retry2 =0;
+				while(!USART_GetFlagStatus(USART1,USART_FLAG_RXNE) && retry2++<10){
+					SystickDelay(2);
+				}
+				if(USART_GetFlagStatus(USART1,USART_FLAG_RXNE)){
+					remote_check_sum = USART_ReceiveData(USART1); //"Read" checksum
+				}
+				SystickDelay(20);
+	//			checksum = remote_check_sum;
+				if(remote_check_sum == checksum){
+					SystickDelay(2);
+					USART_SendData(USART1,checksum);
+					while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+			
+				}
+				SystickDelay(100);
+				USART_SendData(USART1,0x80U | ((controller_address & 0x0f)<<3U) | 0); //Command 0 - Get status
+				SystickDelay(20);
+				unsigned char data = USART_ReceiveData(USART1); //"Read" status
+				if ((data >> 6 ) != 0 ) retry = 22;
+				retry ++;
+			}
+			*/
+		}
+
 	}
 		
 	if (Serial.available()) {
