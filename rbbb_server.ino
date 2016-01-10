@@ -3,6 +3,7 @@
 
 #include <EtherCard.h>
 #include <SoftwareSerial.h>
+#include <avr/wdt.h>
 
 // ethernet interface mac address, must be unique on the LAN
 static byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
@@ -17,6 +18,15 @@ BufferFiller bfill;
 // set up a new serial port
 SoftwareSerial mySerial = SoftwareSerial(rxPin, txPin);
 byte pinState = 0;
+
+int pre_time;
+int work_time;
+int cool_time;
+int retry;
+unsigned char device = 255;
+unsigned char status;
+unsigned char result_1;
+unsigned char result_2;
 
 void setup () {
 	// define pin modes for tx, rx, led pins:
@@ -42,6 +52,7 @@ void setup () {
 	char someChar = 'r';
 	mySerial.print(someChar);
   //ether.staticSetup(myip);
+	wdt_enable(WDTO_4S);
 }
 
 static word homePage() {
@@ -50,7 +61,7 @@ static word homePage() {
   byte m = (t / 60) % 60;
   byte s = t % 60;
   bfill = ether.tcpOffset();
-  bfill.emit_p(PSTR(
+  /*bfill.emit_p(PSTR(
     "HTTP/1.0 200 OK\r\n"
     "Content-Type: text/html\r\n"
     "Pragma: no-cache\r\n"
@@ -58,7 +69,15 @@ static word homePage() {
     "<meta http-equiv='refresh' content='1000'/>"
     "<title>RBBB server</title>" 
     "<h1>$D$D:$D$D:$D$D</h1>"),
-      h/10, h%10, m/10, m%10, s/10, s%10);
+      h/10, h%10, m/10, m%10, s/10, s%10);*/
+  bfill.emit_p(PSTR(
+	  "HTTP/1.0 200 OK\r\n"
+	  "Content-Type: text/csv\r\n"
+	  "Pragma: no-cache\r\n"
+	  "\r\n"
+	  "OPERATION_STATUS,$D,SOLARIUM_STATUS,$D,SOLARIUM_TIME,$D$D"
+	  ),
+	  status, result_1, result_2 / 10, result_2 % 10);
   return bfill.position();
 }
 
@@ -84,8 +103,54 @@ signed char get_solarium_status(int n){
 	return -1;
 }
 
+void SendTime()
+{
+	// checksum: CoolTime + Pre-Time - 5 - MainTime
+	
+	int time_in_hex = /*ToBCD*/(work_time);
+	while (retry < 20){
+		// clear in FIFO
+		unsigned char checksum = (pre_time + cool_time - time_in_hex - 5) & 0x7F;
+		unsigned char  remote_check_sum = 220;
+
+		mySerial.write(0x80U | ((device & 0x0fU) << 3U) | 2U); //Command 2 == Pre_time_set
+		delay(2);
+		mySerial.write(pre_time);
+
+		delay(2);
+		mySerial.write(0x80U | ((device & 0x0fU) << 3U) | 5U); //Command 5 == Main time set
+
+		delay(2);
+		mySerial.write(time_in_hex);
+
+		delay(2);
+
+		mySerial.read(); //"Read" old time
+
+		delay(2);
+		mySerial.write(0x80U | ((device & 0x0fU) << 3U) | 3U); //Command 3 == Cool Time set
+
+		delay(2);
+		mySerial.write(cool_time);
+
+		delay(4);
+
+		remote_check_sum = mySerial.read(); //"Read" checksum
+
+		delay(20);
+		//			checksum = remote_check_sum;
+		if (remote_check_sum == checksum){
+			delay(2);
+			mySerial.write(checksum);
+			retry = 22;
+		}
+		retry++;
+	}
+}
+
 void loop() {
-	unsigned char device = 255;
+	
+	wdt_reset();
 	word len = ether.packetReceive();
 	word pos = ether.packetLoop(len);
 	
@@ -93,6 +158,71 @@ void loop() {
 	{
 		//Serial.println("\nReceived command:");
 		//Serial.print((char*)Ethernet::buffer+pos);
+
+		/*
+		REST HTTP
+
+		Start
+		http://127.0.0.1/Start/<deviceID>/<DelayTimeSec>/<WorkTimeSec>/<CoolTimeSec>
+
+		Http://127.0.0.1/Start/3/180/240/120
+
+		Force Start
+		http://127.0.0.1/ForceStart/<deviceID>
+
+		Force Stop
+		http://127.0.0.1/ForceStop/<deviceID>
+
+		GetStatus
+		http://127.0.0.1/GetStatus/<deviceID>
+
+
+		Тук ми връщай нещо със статуса – както прецениш		
+		
+		*/
+
+		result_1 = 0;
+		result_2 = 0;
+		status = 1; // Error code
+
+		// Force STOP
+		char *  command_stop = strstr((char *)Ethernet::buffer + pos, "GET /ForceStop/");
+		if (command_stop != 0)
+		{
+			//*(command_status + 18) = 0;
+			device = atoi(command_stop + 15);
+			Serial.println("\nStop Device:");
+			Serial.print(device);
+			pre_time = 0;
+			work_time = 0;
+			cool_time = 2;
+			retry = 0;
+			SendTime();
+			if (retry == 23)
+			{
+				Serial.println("\nStop success");				
+				status = 0;
+			}
+			else
+			{
+				Serial.println("\nStop failed");			
+			}
+		}
+		// Force START
+		char *  command_start_force = strstr((char *)Ethernet::buffer + pos, "GET /ForceStart/");
+		if (command_start_force != 0)
+		{
+			//*(command_status + 18) = 0;
+			device = atoi(command_start_force + 15);
+			Serial.println("\nDevice:");
+			Serial.print(device);
+			mySerial.write((0x80 | ((device & 0x0f) << 3)) | 1); // 1 == Start command
+			delay(10);
+			mySerial.write(0x55 ); // validate start		
+			status = 0;
+		}
+
+		// STATUS
 		char *  command_status = strstr((char *)Ethernet::buffer + pos, "GET /GetStatus/");
 		if (command_status != 0)
 		{
@@ -110,8 +240,12 @@ void loop() {
 				Serial.print(curr_status);
 				Serial.print(" Time: ");
 				Serial.print(curr_time);
+				result_2 = curr_time;
+				status = 0;
+				result_1 = curr_status;
 			}
 		}
+		// START
 		char * command_start = strstr((char *)Ethernet::buffer + pos, "GET /Start/");
 		if (command_start != 0)
 		{
@@ -124,69 +258,36 @@ void loop() {
 		
 			tmp = strstr(command_start, "/");
 			command_start = tmp+1;
-			int pre_time = strtol(command_start, &command_start, 10);
+			pre_time = strtol(command_start, &command_start, 10);
 			Serial.println("\nPreTime:");
 			Serial.print(pre_time);		
 			
 			tmp = strstr(command_start, "/");
 			command_start = tmp+1;
-			int work_time = strtol(command_start, &command_start, 10);
+			work_time = strtol(command_start, &command_start, 10);
+			if (work_time > 8) work_time = 8;
 			Serial.println("\nWorkTime:");
 			Serial.print(work_time);		
 
 			tmp = strstr(command_start, "/");
 			command_start = tmp+1;
-			int cool_time = strtol(command_start, &command_start, 10);
+			cool_time = strtol(command_start, &command_start, 10);
 			Serial.println("\nCoolTime:");
 			Serial.print(cool_time);
 
-			int val1 = atoi(command_start);
-			int retry = 0;
-			int time_in_hex = ToBCD(work_time);
+			int val1 = atoi(command_start);			
+			
 			pre_time = pre_time & 0x7F;
-			// checksum: CoolTime + Pre-Time - 5 - MainTime
-			
-			while(retry < 20){
-				// clear in FIFO
-				unsigned char checksum = (pre_time + cool_time  - time_in_hex - 5) & 0x7F;
-				unsigned char  remote_check_sum = 220;
-			
-				mySerial.write(0x80U | ((device & 0x0fU) << 3U) | 2U); //Command 2 == Pre_time_set
-				delay(2);
-				mySerial.write(pre_time);
-					
-				delay(2);
-				mySerial.write(0x80U | ((device & 0x0fU) << 3U) | 5U); //Command 5 == Main time set
-				
-				delay(2);
-				mySerial.write(time_in_hex);
-				
-				delay(2);
-				
-				mySerial.read(); //"Read" old time
-	
-				delay(2);
-				mySerial.write(0x80U | ((device & 0x0fU) << 3U) | 3U); //Command 3 == Cool Time set
-				
-				delay(2);
-				mySerial.write(cool_time);
-				
-				delay(4);				
-				
-				remote_check_sum = mySerial.read(); //"Read" checksum
-				
-				delay(20);
-	//			checksum = remote_check_sum;
-				if(remote_check_sum == checksum){
-					delay(2);
-					mySerial.write(checksum);								
-				}
-				delay(100);
-				mySerial.write(0x80U | ((device & 0x0f) << 3U) | 0); //Command 0 - Get status
-				delay(20);
-				unsigned char data = mySerial.read(); //"Read" status
-				if ((data >> 6 ) != 0 ) retry = 22;
-				retry ++;
+			retry = 0;
+			SendTime();
+			if (retry == 23)
+			{
+				Serial.println("\nStart success");				
+				status = 0;
+			}
+			else
+			{
+				Serial.println("\nStart failed");
 			}			
 		}
 	}
