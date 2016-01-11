@@ -27,12 +27,14 @@ unsigned char device = 255;
 unsigned char status;
 unsigned char result_1;
 unsigned char result_2;
+unsigned char demo_mode;
 
 void setup () {
 	// define pin modes for tx, rx, led pins:
 	pinMode(rxPin, INPUT);
 	pinMode(txPin, OUTPUT);
 	pinMode(ledPin, OUTPUT);
+	//digitalWrite(txPin, LOW);
 	// set the data rate for the SoftwareSerial port
 	mySerial.begin(1200);
 	Serial.begin(1200);
@@ -50,7 +52,7 @@ void setup () {
 	ether.printIp("IP:  ", ether.myip);
 	ether.printIp("Netmask:  ", ether.netmask);
 	char someChar = 'r';
-	mySerial.print(someChar);
+	//mySerial.print(someChar);
   //ether.staticSetup(myip);
 	wdt_enable(WDTO_4S);
 }
@@ -177,8 +179,8 @@ void loop() {
 		http://127.0.0.1/GetStatus/<deviceID>
 
 
-		Тук ми връщай нещо със статуса – както прецениш		
-		
+		Тук ми връщай нещо със статуса – както прецениш
+
 		*/
 
 		result_1 = 0;
@@ -200,12 +202,12 @@ void loop() {
 			SendTime();
 			if (retry == 23)
 			{
-				Serial.println("\nStop success");				
+				Serial.println("\nStop success");
 				status = 0;
 			}
 			else
 			{
-				Serial.println("\nStop failed");			
+				Serial.println("\nStop failed");
 			}
 		}
 		// Force START
@@ -218,7 +220,7 @@ void loop() {
 			Serial.print(device);
 			mySerial.write((0x80 | ((device & 0x0f) << 3)) | 1); // 1 == Start command
 			delay(10);
-			mySerial.write(0x55 ); // validate start		
+			mySerial.write(0x55); // validate start		
 			status = 0;
 		}
 
@@ -246,7 +248,13 @@ void loop() {
 			}
 		}
 		// START
+		demo_mode = 1;
 		char * command_start = strstr((char *)Ethernet::buffer + pos, "GET /Start/");
+		if (command_start == 0)
+		{
+			command_start = strstr((char *)Ethernet::buffer + pos, "GET /SStart/");
+			demo_mode = 0;
+		}
 		if (command_start != 0)
 		{
 			command_start += 10;
@@ -265,7 +273,7 @@ void loop() {
 			tmp = strstr(command_start, "/");
 			command_start = tmp+1;
 			work_time = strtol(command_start, &command_start, 10);
-			if (work_time > 8) work_time = 8;
+			if (work_time > 8 && demo_mode) work_time = 8;
 			Serial.println("\nWorkTime:");
 			Serial.print(work_time);		
 
@@ -292,9 +300,9 @@ void loop() {
 		}
 	}
 		
-	if (Serial.available()) {
-		mySerial.write(Serial.read());
-	}
+//	if (Serial.available()) {
+//		mySerial.write(Serial.read());
+//	}
 	if (pos)  // check if valid tcp data is received
 		ether.httpServerReply(homePage()); // send web page data	
 	delay(1);
