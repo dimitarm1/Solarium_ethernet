@@ -4,6 +4,7 @@
 #include <EtherCard.h>
 #include <SoftwareSerial.h>
 #include <avr/wdt.h>
+#include "TimerOne.h"
 
 // ethernet interface mac address, must be unique on the LAN
 static byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
@@ -28,6 +29,10 @@ unsigned char status;
 unsigned char result_1;
 unsigned char result_2;
 unsigned char demo_mode;
+unsigned char demo_pre_time = 0;
+unsigned char demo_work_time = 0;
+unsigned char demo_cool_time = 0;
+unsigned char prescaler = 60;
 
 void setup () {
 	// define pin modes for tx, rx, led pins:
@@ -55,8 +60,21 @@ void setup () {
 	//mySerial.print(someChar);
   //ether.staticSetup(myip);
 	wdt_enable(WDTO_4S);
+  Timer1.initialize(1000000);  // Initialize Timer1 to 1S period
+  Timer1.attachInterrupt(callback);  // attaches callback() as a timer overflow interrupt
 }
 
+void callback()
+{
+  prescaler--;
+  if (prescaler == 0)
+  {
+    prescaler = 60;
+    if (demo_pre_time > 0) demo_pre_time--;
+    else if (demo_work_time > 0) demo_work_time--;
+    else if(demo_cool_time > 0) demo_cool_time--;
+  }
+}
 static word homePage() {
   long t = millis() / 1000;
   word h = t / 3600;
@@ -179,9 +197,19 @@ void loop() {
 		http://127.0.0.1/GetStatus/<deviceID>
 
 
-		Тук ми връщай нещо със статуса – както прецениш
+		пїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 
 		*/
+
+    /*
+ * commads:
+ * 0 - status 0-free, 1-Working, 2-COOLING, 3-WAITING
+ * 1 - start
+ * 2 - set pre-time
+ * 3 - set cool-time
+ * 4 - stop - may be not implemented in some controllers
+ * 5 - set main time
+ */
 
 		result_1 = 0;
 		result_2 = 0;
@@ -195,20 +223,29 @@ void loop() {
 			device = atoi(command_stop + 15);
 			Serial.println("\nStop Device:");
 			Serial.print(device);
-			pre_time = 0;
-			work_time = 0;
-			cool_time = 2;
-			retry = 0;
-			SendTime();
-			if (retry == 23)
-			{
-				Serial.println("\nStop success");
-				status = 0;
-			}
-			else
-			{
-				Serial.println("\nStop failed");
-			}
+      if (device == 16)
+      {
+        demo_pre_time = 0;
+        demo_work_time = 0;
+        demo_cool_time = 0;
+      }
+      else
+      {
+  			pre_time = 0;
+  			work_time = 0;
+  			cool_time = 2;
+  			retry = 0;
+  			SendTime();
+  			if (retry == 23)
+  			{
+  				Serial.println("\nStop success");
+  				status = 0;
+  			}
+  			else
+  			{
+  				Serial.println("\nStop failed");
+  			}
+      }     
 		}
 		// Force START
 		char *  command_start_force = strstr((char *)Ethernet::buffer + pos, "GET /ForceStart/");
@@ -218,10 +255,20 @@ void loop() {
 			device = atoi(command_start_force + 15);
 			Serial.println("\nDevice:");
 			Serial.print(device);
-			mySerial.write((0x80 | ((device & 0x0f) << 3)) | 1); // 1 == Start command
-			delay(10);
-			mySerial.write(0x55); // validate start		
-			status = 0;
+      if (device == 16)
+      {
+        demo_pre_time = 0;
+        prescaler = 60;
+        Timer1.restart();
+        status = 0;
+      }
+      else
+      {
+  			mySerial.write((0x80 | ((device & 0x0f) << 3)) | 1); // 1 == Start command
+  			delay(10);
+  			mySerial.write(0x55); // validate start		
+  			status = 0;
+      }
 		}
 
 		// STATUS
@@ -232,20 +279,48 @@ void loop() {
 			device = atoi(command_status + 15);
 			Serial.println("\nDevice:");
 			Serial.print(device);
-			mySerial.write((0x80 | ((device & 0x0f) << 3)));
-			delay(100);
-			if (mySerial.available()) {
-				int sts = mySerial.read();
-				int curr_status = (sts & 0xC0) >> 6;
-				int curr_time = sts & 0x3F;
-				Serial.print("\nStatus: ");
-				Serial.print(curr_status);
-				Serial.print(" Time: ");
-				Serial.print(curr_time);
-				result_2 = curr_time;
-				status = 0;
-				result_1 = curr_status;
-			}
+      if (device == 16)
+      {
+        if (demo_pre_time>0)
+        {
+          result_2 = demo_pre_time;
+          result_1 = 3; // Waiting
+        }
+        else if (demo_work_time > 0)
+        {
+          result_2 = demo_work_time;
+          result_1 = 1; // Working
+        }
+        else if (demo_cool_time > 0)
+        {
+          result_2 = demo_cool_time;
+          result_1 = 2; // Cooling
+        }
+        else
+        {
+          result_2 = 0;
+          result_1 = 0; // Free
+        }
+        status = 0;
+      }
+      else
+      {
+  			mySerial.write((0x80 | ((device & 0x0f) << 3)));
+  			delay(100);
+  			if (mySerial.available()) 
+  			{
+  				int sts = mySerial.read();
+  				int curr_status = (sts & 0xC0) >> 6;
+  				int curr_time = sts & 0x3F;
+  				Serial.print("\nStatus: ");
+  				Serial.print(curr_status);
+  				Serial.print(" Time: ");
+  				Serial.print(curr_time);
+  				result_2 = curr_time;
+  				status = 0;
+  				result_1 = curr_status;
+  			}
+      }
 		}
 		// START
 		demo_mode = 1;
@@ -284,19 +359,30 @@ void loop() {
 			Serial.print(cool_time);
 
 			int val1 = atoi(command_start);			
-			
-			pre_time = pre_time & 0x7F;
-			retry = 0;
-			SendTime();
-			if (retry == 23)
-			{
-				Serial.println("\nStart success");				
-				status = 0;
-			}
-			else
-			{
-				Serial.println("\nStart failed");
-			}			
+			if (device == 16)
+      {
+        demo_pre_time = pre_time;
+        demo_work_time = work_time;
+        demo_cool_time = cool_time;
+        prescaler = 60;
+        Timer1.restart();
+        status = 0;
+      }
+      else
+      {
+  			pre_time = pre_time & 0x7F;
+  			retry = 0;
+  			SendTime();
+  			if (retry == 23)
+  			{
+  				Serial.println("\nStart success");				
+  				status = 0;
+  			}
+  			else
+  			{
+  				Serial.println("\nStart failed");
+  			}
+      }			
 		}
 	}
 		
