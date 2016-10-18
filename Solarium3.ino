@@ -5,9 +5,7 @@
 #include <avr/wdt.h>
 #include "TimerOne.h"
 
-#define rxPin 11
-#define txPin 12
-#define ledPin 6
+#define ledPin 13
 
 #define STATUS_FREE    0
 #define STATUS_WORKING 1
@@ -22,7 +20,7 @@
 #define STATE_WAIT_VALIDATE_START 5
 
 // set up a new serial port
-//SoftwareSerial mySerial = SoftwareSerial(rxPin, txPin); 
+
 #define mySerial Serial
 byte pinState = 0;
 
@@ -35,35 +33,32 @@ signed char main_time[16];
 signed char cool_time[16];
 unsigned char device_status[16];
 unsigned char prescalers[16] = { 60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,60  };
-signed const char output_pin_LUT[16] = {2,3,4,5,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};  
-signed const char input_pin_LUT[16] = {7,8,9,10,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
+signed const char output_pin_LUT[16] = {2,3,4,5,6,A0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};  
+signed const char input_pin_LUT[16] = {7,8,9,10,11,12,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
 unsigned char key_readings[16];
 int receiver_timeout;
 char receiver_state;
 
 
 void setup () {
-  // define pin modes for tx, rx, led pins:
-  pinMode(rxPin, INPUT);
-  pinMode(txPin, OUTPUT);
+  // define pin modes for led pin: 
   pinMode(ledPin, OUTPUT);
 
   pinMode(2, OUTPUT);
   pinMode(3, OUTPUT);        
   pinMode(4, OUTPUT);
   pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
+  pinMode(A0, OUTPUT);
 
   pinMode(7, INPUT_PULLUP);
   pinMode(8, INPUT_PULLUP);
   pinMode(9, INPUT_PULLUP);
   pinMode(10, INPUT_PULLUP);
-  //digitalWrite(txPin, LOW);
-  // set the data rate for the SoftwareSerial port
+  pinMode(11, INPUT_PULLUP);
+  pinMode(12, INPUT_PULLUP);
+
   mySerial.begin(1200);
-  //Serial.begin(115200);
-  //Serial.println("\nHello");
-  char someChar = 'r';
-  //mySerial.print(someChar);
   wdt_enable(WDTO_4S);
   Timer1.initialize(1000000);  // Initialize Timer1 to 1S period
   Timer1.attachInterrupt(callback);  // attaches callback() as a timer overflow interrupt
@@ -184,7 +179,7 @@ void loop()
        * 4 - stop - may be not implemented in some controllers
        * 5 - set main time
        */
-if (device<4)
+if (device<6)
       switch(data & 0x07)
       {
       case 0: // ststus
