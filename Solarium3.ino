@@ -31,6 +31,9 @@ unsigned char result_2;
 signed char pre_time[16];
 signed char main_time[16];
 signed char cool_time[16];
+signed char pre_time_buffered[16];
+signed char main_time_buffered[16];
+signed char cool_time_buffered[16];
 unsigned char device_status[16];
 unsigned char prescalers[16] = { 60,60,60,60,60,60,60,60,60,60,60,60,60,60,60,60  };
 signed const char output_pin_LUT[16] = {2,3,4,5,6,A0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};  
@@ -38,7 +41,7 @@ signed const char input_pin_LUT[16] = {7,8,9,10,11,12,-1,-1,-1,-1,-1,-1,-1,-1,-1
 unsigned char key_readings[16];
 int receiver_timeout;
 char receiver_state;
-
+unsigned char counter_enabled;
 
 void setup () {
   // define pin modes for led pin: 
@@ -65,21 +68,24 @@ void setup () {
   wdt_enable(WDTO_4S);
   Timer1.initialize(1000000);  // Initialize Timer1 to 1S period
   Timer1.attachInterrupt(callback);  // attaches callback() as a timer overflow interrupt
- 
+  counter_enabled = 1;
 }
 
 void callback()
 {
-  for(char i=0; i<16; i++)
+  if(counter_enabled != 0)
   {
-    prescalers[i]--;
-    if (prescalers[i] == 0)
+    for(char i=0; i<16; i++)
     {
-      prescalers[i] = 60;
-      if (pre_time[i] > 0) pre_time[i]--;
-      else if (main_time[i] > 0) main_time[i]--;
-      else if(cool_time[i] > 0) cool_time[i]--;
-      updateDeviceStatus(i);
+     prescalers[i]--;
+     if (prescalers[i] == 0)
+     {
+        prescalers[i] = 60;
+        if (pre_time[i] > 0) pre_time[i]--;
+        else if (main_time[i] > 0) main_time[i]--;
+        else if(cool_time[i] > 0) cool_time[i]--;
+        updateDeviceStatus(i);
+      }
     }
   }
 }
@@ -252,13 +258,12 @@ if (device<6)
       {
         case STATE_WAIT_PRE_TIME:          
           if(data>9)data = 9;
-          pre_time[device] = (data);
-          prescalers[device] = 60;        
+          pre_time_buffered[device] = (data);        
           receiver_state = STATE_WAIT_COMMAND;
           break;
         case STATE_WAIT_MAIN_TIME:                              
           prescalers[device] = 60;
-          main_time[device] = FromBCD(data);       
+          main_time_buffered[device] = FromBCD(data);       
           mySerial.write(main_time[device]);
 //          Serial.print(F("\nMain_time:"));
 //          Serial.print(main_time[device]);
@@ -266,25 +271,30 @@ if (device<6)
           break;
         case STATE_WAIT_COOL_TIME:       
           if(data>9) data = 9;
-          cool_time[device] = (data);
-          time_in_hex = ToBCD(main_time[device]);
+          cool_time_buffered[device] = (data);
+          time_in_hex = ToBCD(main_time_buffered[device]);
 //          Serial.print(F("\nTime in HEX:"));
 //          Serial.print(time_in_hex, HEX);
-          checksum = (pre_time[device] + cool_time[device] - time_in_hex - 5) & 0x7F;
+          checksum = (pre_time_buffered[device] + cool_time_buffered[device] - time_in_hex - 5) & 0x7F;
 //          Serial.print(F("\nchecksum sent:"));
 //          Serial.print(checksum, HEX);
           mySerial.write(checksum);
           receiver_state = STATE_WAIT_CHECKSUM;                                                          
           break;
         case STATE_WAIT_CHECKSUM:   
-          time_in_hex = ToBCD(main_time[device]);
-          checksum = (pre_time[device] + cool_time[device] - time_in_hex - 5) & 0x7F;     
+          time_in_hex = ToBCD(main_time_buffered[device]);
+          checksum = (pre_time_buffered[device] + cool_time_buffered[device] - time_in_hex - 5) & 0x7F;     
           if((char)data == (char)checksum)
           {
 //             Serial.print(F("\nchecksum OK!!!!!"));
-            if(main_time[device] > 60) main_time[device] = 60;
+            if(main_time_buffered[device] > 60) main_time_buffered[device] = 60;
+            counter_enabled = 0;
             prescalers[device] = 60;
+            pre_time[device] = pre_time_buffered[device];
+            main_time[device] = main_time_buffered[device];
+            cool_time[device] = cool_time_buffered[device];
             updateDeviceStatus(device);
+            counter_enabled = 1;
           }
 //          Serial.print(F("\nPre_time/Main_time/Cool_time:"));
 //          Serial.print(pre_time[device]);
@@ -327,9 +337,11 @@ if (device<6)
       key_readings[i] = (key_readings[i]<<1) | digitalRead(input_pin_LUT[i]);
       if(key_readings[i] == 0x00 && device_status[i] == STATUS_WAITING)
       {
+          counter_enabled = 0;
           prescalers[device] = 60;
           pre_time[i] = 0;
           updateDeviceStatus(i);
+          counter_enabled = 1;
       }
     }
   }
